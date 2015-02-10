@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8">
 
-<title>Your title</title>
+<title>Akka Streams</title>
 
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -45,101 +45,667 @@
 
 ![Typesafe](images/typesafe-logo-text.png "Typesafe")
 
-</script></section>
-
+<aside class="notes" data-markdown>
+- I work for Typesafe. We provide a platform for Reactive application development. It includes Play Framework, Akka, and Scala. I work on the X team.
+- Typesafe delivers a ton of content and programs to ensure developers are successful on our platform, including subscription programs.
+- Visit our website if you would like to learn more.
+</aside></script></section>
 <!-- ########################################################################################### -->
 <section data-markdown data-background="#103a51" data-state="h2Uppercase">
-##Presentation Title
+##The Akka Streams of Rhetoric and the Identity of Multimodal Composition Practices
 
-###Full name
+###Martynas Mickevičius
 </section>
-
-
 <!-- ########################################################################################### -->
 <section data-markdown><script type="text/template">
-# A Big Statement!
+# That's a joke. :)
 </script></section>
-
-
 <!-- ########################################################################################### -->
 <section data-markdown><script type="text/template">
-## Title Text
-
-- Don&#39;t use single quotes in HTML
-  - Instead use the correct HTML char
-- Yet another bullet point of high importance
-- Three bullet points look nicer than two
-</script></section>
-
-<!-- ########################################################################################### -->
-<section data-markdown><script type="text/template">
-## Image with Text
-
-![Distribution](images/distribution.jpg "Distribution")
-
-Everything in Akka is **distributed by default**
-</script></section>
-
-<!-- ########################################################################################### -->
-<section data-markdown><script type="text/template">
-## Code
+# Introduction to Akka Streams
 
 ``` scala
-// Message Protocol
-case class Greeting(who: String)
+libraryDependencies +=
+  "com.typesafe.akka" %%
+  "akka-stream-experimental" %
+  "1.0-M3"
+```
 
-class GreetingActor extends Actor {
-  // Put mutable state in here..
+<aside class="notes" data-markdown>
+- mostly show code examples
+- nearing its first version, which means API will not change much
+- still experimental do not, or do use production
+- will be finally released as part of akka 2.3
+- who has used akka, akka-streams, spray, akka-http?
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Motivation
 
-  def receive = {
-    // Define the behavior here..
-    case Greeting(who) => println(s"Hello $who")
+- regarding data as a stream of elements
+- actors fit here well, but are error-prone to make processing stable
+- purpose of Akka Streams API is to provide safe way to formulate stream processing setups
+
+<aside class="notes" data-markdown>
+- regarding data as streams is useful, because thats is how they are implemented
+- do not fit to memory/disks
+- infinite streams
+- actors send and receive messages to transfer knowledge
+- error-prone to handle overflows, lost messages, wiring-errors
+- akka streams process data efficiently, with bounded resource usage
+- need to be able to slow down fast producers by backpressure
+- interoperates easily with other implementations of Reactive Streams
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Sample usage
+
+``` scala
+case class Hashtag(name: String)
+case class Author(handle: String)
+case class Tweet(author: Author, hashtags: Set[Hashtag])
+
+val Akka = Hashtag("#akka")
+
+val tweets: Source[Tweet] = ???
+tweets.filter(_.hashtags.contains(Akka))
+      .map(_.author)
+      .foreach(println)
+```
+
+<aside class="notes" data-markdown>
+- fluent, collection like, api
+- on alive streamed elements
+- typesafe
+- backpressure
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Let's run it
+
+``` scala
+scala> Source(0 to 10).runForeach(print)
+
+<console>:11: error: could not find implicit value for
+parameter materializer: akka.stream.FlowMaterializer
+```
+<aside class="notes" data-markdown>
+- Source / Flow / Sink is a blueprint for data processing
+- Must be materialized to workers
+- Pluggable materialization, currently to actors
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Materializer
+
+``` scala
+scala> implicit val sys = ActorSystem("streams")
+scala> implicit val mat = ActorFlowMaterializer()
+scala> Source(0 to 10).runForeach(print)
+012345678910
+```
+<aside class="notes" data-markdown>
+- actors are created in the provided actor system
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Some of the sources
+``` scala
+Source(iterable: immutable.Iterable[T])
+
+Source(f: () ⇒ Iterator[T])
+
+Source(future: Future[T])
+
+Source(initialDelay: FiniteDuration,
+       interval: FiniteDuration, tick: T)
+```
+<aside class="notes" data-markdown>
+- sources are immutable
+- needed for blueprint-like functionallity, shipped elsewhere and materialized
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Getting rid of the helpers
+``` scala
+Source(0 to 10).map(_.toString).runForeach(print)
+
+// <==>
+
+val source: Source[Int] = Source(0 to 10)
+val flow: Flow[Int, String] = Flow[Int].map(_.toString)
+val sink: Sink[String] = Sink.foreach(print)
+
+source.via(flow).to(sink).run()
+```
+<aside class="notes" data-markdown>
+- everything is a composition of Source/Flow/Sink
+- materialized when run is called
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Some of the sinks
+``` scala
+Sink.foreach[T](f: T ⇒ Unit)
+
+Sink.fold[U, T](zero: U)(f: (U, T) ⇒ U)
+
+Sink.onComplete[T](callback: Try[Unit] ⇒ Unit)
+
+Sink.head[T]
+
+Sink.ignore
+```
+<aside class="notes" data-markdown>
+- some sinks produce a value
+- get it from materialized map
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## MaterializedMap
+``` scala
+val sink = Sink.head[Int]
+val mm = Source(0 to 10).to(sink).run()
+val first: Future[Int] = mm.get(sink)
+```
+<aside class="notes" data-markdown>
+- data structure that you get after materialization
+- materialized values from sources/sink can be extracted from materialized maps
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Some of the flow transformations
+``` scala
+flow.map[T](f: Out ⇒ T)
+flow.mapConcat[T](f: Out ⇒ immutable.Seq[T])
+flow.mapAsync[T](f: Out ⇒ Future[T])
+
+flow.filter(p: Out ⇒ Boolean)
+flow.collect[T](pf: PartialFunction[Out, T])
+
+flow.grouped(n: Int)
+flow.groupedWithin(n: Int, d: FiniteDuration)
+
+flow.scan[T](zero: T)(f: (T, Out) ⇒ T)
+```
+<aside class="notes" data-markdown>
+- transforms a flow to another flow
+- everything remains typesafe
+</aside></script></section>
+</section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Conflate
+``` scala
+def delay[T](dur: FiniteDuration, elem: T) =
+  after(dur, sys.scheduler)(Future.successful(elem))
+
+Source(0 seconds, 100 millis, 1).
+  conflate(_ => 1)(_ + _).
+  mapAsync(i => delay(1 second, i)).
+  runForeach(print)
+```
+<aside class="notes" data-markdown>
+- for fast producer and slow consumer
+- everything remains typesafe
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Expand
+``` scala
+Source(0 seconds, 100 millis, 1).
+  expand(_ => 1)(("extra", _: Int)).
+  runForeach(print)
+```
+<aside class="notes" data-markdown>
+- for slow producer and fast consumer
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Buffer
+``` scala
+flow.buffer(100, overflowStrategy)
+```
+
+Where `overflowStrategy` one of:
+
+- OverflowStrategy.backpressure
+- OverflowStrategy.dropTail
+- OverflowStrategy.dropHead
+- OverflowStrategy.dropBuffer
+- OverflowStrategy.error
+
+<aside class="notes" data-markdown>
+- drop tails drops youngest element, when fairness is required
+- drop head drops oldest, usedful when elements can be repeated
+- drop buffer drops everything
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Transform
+``` scala
+flow.transform[T](mkStage: () ⇒ Stage[Out, T])
+```
+
+mkStage is a factory of one of:
+
+- PushPullStage
+- PushStage
+- StatefulStage
+- DetachedStage
+
+<aside class="notes" data-markdown>
+- allows for custom transformation logic
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## PushPullStage
+``` scala
+class Map[A, B](f: A => B) extends PushPullStage[A, B] {
+  override def onPush(elem: A, ctx: Context[B]): Directive =
+    ctx.push(f(elem))
+
+  override def onPull(ctx: Context[B]): Directive =
+    ctx.pull()
+}
+
+Source(0 to 0).transform(() => new Map(_ * 3))
+```
+
+<aside class="notes" data-markdown>
+- box with two inputs and two outputs
+- using context to signalt what needs to be done
+- can be called only once from each callback as the last statement
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## PushStage
+``` scala
+class Map[A, B](f: A => B) extends PushStage[A, B] {
+  override def onPush(elem: A, ctx: Context[B]): Directive =
+    ctx.push(f(elem))
+}
+```
+<aside class="notes" data-markdown>
+- many one-to-one and many-to-one transformations do not change pull signal
+- propagates pull directly upstream
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## StatefulStage
+``` scala
+class Duplicator[A]() extends StatefulStage[A, A] {
+  override def initial = new StageState[A, A] {
+    override def onPush(elem: A, ctx: Context[A]) =
+      emit(List(elem, elem).iterator, ctx)
   }
 }
 ```
-</script></section>
 
+<aside class="notes" data-markdown>
+- possible to maintain state machine with StageState
+- supports become
+- emit() allows pushing multi elements
+</aside></script></section>
 <!-- ########################################################################################### -->
 <section data-markdown><script type="text/template">
-## Code with Text
+## Flow Graphs
 
-```scala
-scala> var message = "Hello, world!"
-message: String = Hello, world!
+![Simple Graph](images/simple-graph-example1.png "Simple Graph")
 
-scala> message = "Trying to reassign ..."
-message: String = Trying to reassign ...
+<aside class="notes" data-markdown>
+- expressed not in a fluent API, but in a more graph resembling one - easier translating
+- needed for any fan in or fan out, flows - roads, graphs - junctions
+- constructed from Flows, connected by Junctions
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Fan-out Junctions
+
+- Broadcast[T]
+- Balance[T]
+- UnZip[A,B]
+- FlexiRoute[In]
+
+<aside class="notes" data-markdown>
+- broadcast signals each output given an input signal
+- balance signals one of its output ports given an input signal
+- unzip split a stream of (A,B) tuples into two streams one type A and one of type B
+- flexirout, enable custom fan out
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Fan-in Junctions
+
+- Merge[In]
+- MergePreferred[In]
+- ZipWith[A, B, ..., Out]
+- Zip[A,B]
+- Concat[A]
+- FlexiMerge[Out]
+
+<aside class="notes" data-markdown>
+- merge picks signals randomly from inputs pushing them one by one to its output
+- merge pref, like Merge but if elements are available on preferred port, it picks from it, otherwise randomly from others
+- zipwith, (n inputs (defined upfront), 1 output), which takes a function of n inputs that, given all inputs are signalled, transforms and emits 1 output,
+- zip, specialized zipwith to zip two streams into a tuple stream
+- concat, first consume one then another
+- fleximerge, which enables writing custom fan-in elements using a simple DSL.
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## FlowGraph
+
+``` scala
+val g = FlowGraph { implicit b =>
+  import FlowGraphImplicits._
+  val in = Source(1 to 10)
+  val out = Sink.ignore
+
+  val bcast = Broadcast[Int]
+  val merge = Merge[Int]
+
+  val f1, f2, f3, f4 = Flow[Int].map(_ + 10)
+
+  in ~> f1 ~> bcast ~> f2 ~> merge ~> f3 ~> out
+              bcast ~> f4 ~> merge
+}
 ```
-- A mutable variable is defined with the *var* keyword
-- Can be reassigned a new value
-</script></section>
+
+<aside class="notes" data-markdown>
+- import implicits, brings in ~> (edge, via, to), without it could call b.addEdge
+- b: FlowGraphBuilder is mutable
+- the returned FlowGraph is immutable, thread-sage, reusable, sharable
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Integration with the outside (actor) world
+
+- ActorPublisher
+- ActorSubscriber
+
+<aside class="notes" data-markdown>
+- a way of creating custom sources/sinks
+</aside></script></section>
 
 <!-- ########################################################################################### -->
 <section data-markdown><script type="text/template">
-## Quote Example
+## Actor Publisher
 
-<blockquote>My favorite things in life don&#39;t cost any money. It&#39;s really clear that the most precious resource we all have is time.</blockquote>
-<small>Steve Jobs</small>
-</script></section>
+``` scala
+class JobManager extends ActorPublisher[JobManager.Job] {
+  var buf = Vector.empty[Job]; val Max = 100
 
+  def receive = {
+    case job: Job if buf.size == Max => sender() ! Denied
+    case job: Job => buf :+= job; deliverBuf()
+    case Request(_) => deliverBuf()
+    case Cancel => context.stop(self)
+  }
 
+  def deliverBuf(): Unit = {
+    val (use, keep) = buf.splitAt(totalDemand.toInt)
+    buf = keep; use foreach onNext
+  }
+}
+```
+
+<aside class="notes" data-markdown>
+- mixin trait that keeps track of the subscription life cycle and requested elements.
+- send element to the stream by calling onNext
+- allowed only when totalDemand > 0, otherwise - ISE
+- when downstream requests more - Request
+- when downstream cancels - Cancel
+</aside></script></section>
 <!-- ########################################################################################### -->
-<section>
-<h2>Get It and Learn More</h2>
-<ul>
-    <li><a href="http://akka.io">akka.io</a></li>
-    <li><a href="http://letitcrash.com">letitcrash.com</a></li>
-    <li><a href="https://typesafe.com/activator/templates">Akka Tutorials</a></li>
-    <li>
-        <a href="https://twitter.com/akkateam" class="twitter-follow-button" data-show-count="true">Follow @akkateam</a>
-        <script>!function(d,s,id){var js,fjs=d.getElementsByTagName(s)[0],p=/^http:/.test(d.location)?'http':'https';if(!d.getElementById(id)){js=d.createElement(s);js.id=id;js.src=p+'://platform.twitter.com/widgets.js';fjs.parentNode.insertBefore(js,fjs);}}(document, 'script', 'twitter-wjs');</script>
-        <iframe src="http://ghbtns.com/github-btn.html?user=akka&type=follow&count=false"
-    allowtransparency="true" frameborder="0" scrolling="0" width="165" height="20"></iframe>
-    </li>
-</ul>
-</section>
+<section data-markdown><script type="text/template">
+## Actor Subscriber
 
+``` scala
+class WorkerPool extends ActorSubscriber {
+  var queue = Map.empty[Job, ActorRef]; val Max = 10
 
+  val router = ???
+  override val requestStrategy = new MaxInFlightRequestStrategy(max = Max) {
+    override def inFlightInternally: Int = queue.size
+  }
+
+  def receive = {
+    case OnNext(Job(id, replyTo)) =>
+      queue += (id -> replyTo); router.route(Work(id), self)
+    case Reply(id) =>
+      queue(id) ! Done(id); queue -= id
+  }
+}
+```
+
+<aside class="notes" data-markdown>
+- stream subscriber with full back-pressure control
+- it will receive OnNext, OnComplete, OnError messages
+- can also receive other messages
+- must define requestStrategy
+- can impelemtn custom request strategy, or use ZeroRequest strategy and call request itself
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Using ActorPublisher and ActorSubscriber
+``` scala
+val jobManagerSource = Source[Job](JobManager.props)
+val workerPoolSink = Sink(WorkerPool.props)
+val materializedMap = jobManagerSource
+  .map(_.payload.toUpperCase)
+  .to(workerPoolSink)
+  .run()
+
+val sourceRef = materializedMap.get(jobManagerSource)
+sourceRef ! JobManager.Job("a")
+sourceRef ! JobManager.Job("b")
+sourceRef ! JobManager.Job("c")
+
+val sink = materializedMap.get(workerPoolSink)
+sink ! GetStats
+```
+<aside class="notes" data-markdown>
+- effectively is message sending between actors with back-pressure
+- implements Publisher and Subscriber interfaces
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Reactive Streams
+
+Standard for asynchronous stream processing with non-blocking back pressure
+
+An incomplete list of other implementations:
+
+- Reactor (1.1+)
+- RxJava
+- Ratpack
+- Slick
+
+<aside class="notes" data-markdown>
+- initiative to define a standart by Netflix, Twitter, Redhat, Typesafe, Pivotal Software, Oracle.
+- akka streams is one of implementations
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Reactive Streams Interfaces
+
+``` java
+public interface Publisher<T> {
+  public void subscribe(Subscriber<? super T> s);
+}
+public interface Subscriber<T> {
+  public void onSubscribe(Subscription s);
+  public void onNext(T t);
+  public void onError(Throwable t);
+  public void onComplete();
+}
+public interface Subscription {
+  public void request(long n);
+  public void cancel();
+}
+```
+
+<aside class="notes" data-markdown>
+- plus another one - processor = publisher + subnscriber
+- SPI layer, not intended for the end-users but for the library creators
+- all the methods return void, so no value must be returned synchronously
+- there are ~50 rules that implementations should keep to, to have correct semantics
+- ships with TCK which validates implementations
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Reactive Streams and Akka Streams
+
+``` scala
+val obs = rx.Observable.from(text.split("\\s").toList)
+val publisher = RxReactiveStreams.toPublisher(obs)
+
+val source = PublisherSource(publisher)
+source.map(_.toUpper).runForeach(println)
+```
+
+<aside class="notes" data-markdown>
+- get a reactivestreams.Publisher from rx
+- create a akka-stream source from it
+- use it in akka-stream flow
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Cookbook
+
+- Working with Flows
+- Working with Graphs
+- Working with rate
+- Working with IO
+
+http://akka.io/docs/akka-stream-and-http-experimental/1.0-M3/scala/stream-cookbook.html
+<aside class="notes" data-markdown>
+- more examples of various problems solved in akka-streams
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Akka Streams for library writers
+
+- Akka Stream is materialized once and fully
+- materialization needs to happen on the user side
+- libraries must provide Sources/Flows/Sinks
+
+<aside class="notes" data-markdown>
+
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Akka Stream TCP
+
+``` scala
+val localhost = new InetSocketAddress("localhost", 8080)
+val connections = StreamTcp().bind(localhost).connections
+
+connections runForeach { connection =>
+  println(s"New connection: ${connection.remoteAddress}")
+
+  val echo = Flow[ByteString]
+    .transform(() => parseLines("\n", maxBytes = 256))
+    .map(_ + "!!!\n")
+    .map(ByteString(_))
+
+  connection handleWith echo
+}
+```
+
+<aside class="notes" data-markdown>
+- bind returns Source[IncomingConnection], emits new element on each incomming connection
+- flow is used as a processing stage for incomming ByteStrings from and to the socket
+- library provides user a Source of incomming connections
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Akka Http
+
+``` scala
+val con = Http(system).bind("localhost", 8080).connections
+con.runForeach { connection =>
+  println("New connection: ${connection.remoteAddress}")
+
+  val pingpong = Flow[HttpRequest]
+    .map {
+      case HttpRequest(GET, Uri.Path("/ping"), _, _, _) =>
+        HttpResponse(entity = "PONG!")
+    }
+
+  connection handleWith pingpong
+}
+```
+<aside class="notes" data-markdown>
+- low level symetric to tcp example
+- user provides a flow from GttpRequest to HttpResponse
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Akka Http Routing
+
+``` scala
+val route =
+  path("order" / IntNumber) { id =>
+    (get | put) { ctx =>
+      val name = ctx.request.method.name
+      ctx.complete(s"Received $name request for order $id")
+    }
+  }
+
+Http()
+  .bind(interface = "localhost", port = 8080)
+  .startHandlingWith(route)
+```
+<aside class="notes" data-markdown>
+- akin to spray routing dsl
+- very little changes need to be made to migrate from spray to akka-http
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Akka Http
+
+``` scala
+libraryDependencies +=
+  "com.typesafe.akka" %%
+  "akka-http-experimental" %
+  "1.0-M3"
+```
+
+<aside class="notes" data-markdown>
+- comes with Java routing Api (spray did not have that)
+- will be released to akka 2.3 together with akka-streams
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Akka Http TestKit
+
+``` scala
+libraryDependencies +=
+  "com.typesafe.akka" %%
+  "akka-http-testkit-experimental" %
+  "1.0-M3"
+```
+
+``` scala
+HttpRequest(POST, "/job", Nil, Empty) ~> route ~> check {
+  response.status shouldBe OK
+}
+```
+
+<aside class="notes" data-markdown>
+- allows testing routes without starting servers
+</aside></script></section>
+<!-- ########################################################################################### -->
+<section data-markdown><script type="text/template">
+## Thank you!
+
+Expecting a stream of questions.
+
+<aside class="notes" data-markdown>
+
+</aside></script></section>
 <!-- ########################################################################################### -->
 <!-- END
 <!-- ########################################################################################### -->
@@ -163,7 +729,7 @@ message: String = Trying to reassign ...
     maxScale: 2.0,
 
     theme: Reveal.getQueryHash().theme, // available themes are in /css/theme
-    transition: Reveal.getQueryHash().transition || 'default', // default/cube/page/concave/zoom/linear/fade/none
+    transition: Reveal.getQueryHash().transition || 'linear', // default/cube/page/concave/zoom/linear/fade/none
 
     multiplex: {
       // Example values. To generate your own, see the socket.io server instructions.
